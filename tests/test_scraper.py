@@ -138,3 +138,15 @@ def test_ejecutar_scraping_completo_sin_internet(html_coleccion, html_producto):
     assert errores == []
     assert sesion.urls[0] == scraper.URL_COLECCION
 
+
+# --- Formato colombiano (fix/precio-formato-colombiano) -------------------------
+@pytest.mark.parametrize("valor, esperado", [
+    ("$5.699.000 COP", 5_699_000),
+    ("5.699.000", 5_699_000),
+    ("$ 11.149.000", 11_149_000),
+    ("6199000.00", 6_199_000),
+    (7149000, 7_149_000),
+])
+def test_precio_formato_colombiano(valor, esperado):
+    offers = {"@type": "Offer", "price": valor, "priceCurrency": "COP"}
+    assert scraper.parsear_producto(html_con_producto(offers=offers), URL)["Precio_COP"] == esperado
