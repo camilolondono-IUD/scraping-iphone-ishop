@@ -37,3 +37,29 @@ jobs:
 
       - name: Pruebas unitarias con cobertura (pytest)
         run: pytest --cov=src --cov-report=term-missing
+
+  build:
+    name: Generar sitio
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      - name: Configurar Python 3.12 con caché de pip
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Generar el sitio estático
+        run: python -m src.build_site --datos data/iphone18pro_ishop.csv --salida site
+
+      - name: Subir el sitio como artefacto de Pages
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
