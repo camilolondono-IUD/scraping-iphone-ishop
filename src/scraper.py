@@ -109,12 +109,24 @@ def separar_caracteristicas(nombre):
 
 
 def convertir_precio(valor):
-    """Convierte el precio del JSON-LD a número. Devuelve None si falta o no es válido."""
+    """Convierte el precio a número. Devuelve None si falta o no es válido.
+
+    Acepta números (5699000.0), texto numérico ("5699000.00") y el formato
+    colombiano con separador de miles y símbolo ("$5.699.000 COP").
+    """
     if valor in (None, ""):
         return None
-    try:
+    if isinstance(valor, (int, float)):
         return float(valor)
-    except (TypeError, ValueError):
+    texto = re.sub(r"[^\d.,]", "", str(valor))
+    if not texto:
+        return None
+    if re.fullmatch(r"\d+(\.\d{1,2})?", texto):
+        return float(texto)
+    try:
+        # Formato colombiano: punto como separador de miles y coma decimal
+        return float(texto.replace(".", "").replace(",", "."))
+    except ValueError:
         return None
 
 
