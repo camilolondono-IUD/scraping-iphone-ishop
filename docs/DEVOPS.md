@@ -1,5 +1,8 @@
 # Flujo DevOps del proyecto
 
+> Ver también: [AUTOMATIZACION.md](AUTOMATIZACION.md) (pipeline paso a paso) y
+> [DESPLIEGUE.md](DESPLIEGUE.md) (entorno, variables y despliegue).
+
 Este documento explica cómo se versiona, se prueba y se despliega el scraper del iPhone 18 Pro
 y 18 Pro Max de iShop Colombia. El objetivo es que cada cambio llegue a producción (el sitio en
 GitHub Pages) solo después de pasar pruebas automáticas, y que todo quede trazable en GitHub.
@@ -19,7 +22,10 @@ GitHub Pages) solo después de pasar pruebas automáticas, y que todo quede traz
 | `fix/precio-formato-colombiano` | Corrección detectada por una prueba (CI en rojo → verde) |
 | `feature/sitio-resultados` | Generación del sitio estático con los resultados |
 | `cd/github-pages` | Despliegue continuo en GitHub Pages |
-| `docs/insignias` y `docs/devops` | Documentación (incluye un conflicto resuelto en el README) |
+| `docs/insignias` y `docs/devops` | Documentación del proyecto y del flujo DevOps |
+| `feature/app-interactiva` | EA3: filtros en la app, datos en JSON y configuración por variables de entorno |
+| `ci/despliegue-verificado` | EA3: variables del repositorio, comprobación del build y prueba de humo |
+| `docs/automatizacion-despliegue` | EA3: README reorganizado, AUTOMATIZACION.md y DESPLIEGUE.md |
 
 Se eligió GitHub Flow y no GitFlow porque el proyecto tiene un solo entorno publicado y
 entregas pequeñas: no necesita ramas `develop` ni `release` de larga duración.
@@ -70,6 +76,8 @@ Los permisos por defecto son mínimos (`contents: read`) y solo el job de despli
 | `test` (Pruebas y linting) | — | checkout, Python 3.12 con caché de pip, `ruff check .`, `pytest --cov=src` | Falla si hay errores de estilo o alguna prueba no pasa |
 | `build` (Generar sitio) | `test` | `python -m src.build_site`, `upload-pages-artifact` | Artefacto con `index.html` y `precios.png` |
 | `deploy` (Desplegar en GitHub Pages) | `build` | `deploy-pages` | URL pública; solo corre en push a `main` |
+
+Desde la versión 1.1.0 (EA3) hay un cuarto job, `verificar`, que después de `deploy` ejecuta una prueba de humo contra la URL pública. El detalle de cada paso está en [AUTOMATIZACION.md](AUTOMATIZACION.md).
 
 En un PR corren `test` y `build` (integración continua); al fusionar en `main` corre además
 `deploy` (despliegue continuo). El job `deploy` publica en el entorno `github-pages`, que
