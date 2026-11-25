@@ -1,6 +1,6 @@
 [project]
 name = "scraping-iphone-ishop"
-version = "1.0.0"
+version = "1.1.0"
 description = "Web scraping educativo del iPhone 18 Pro y 18 Pro Max en iShop Colombia con BeautifulSoup"
 requires-python = ">=3.10"
 
