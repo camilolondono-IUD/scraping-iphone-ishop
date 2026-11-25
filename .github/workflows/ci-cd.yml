@@ -1,82 +1,156 @@
+# =============================================================================
+# Pipeline CI/CD – scraping-iphone-ishop
+#
+# Flujo:  test  ──►  build  ──►  deploy  ──►  verificar
+#         (CI)       (CI)        (CD)         (CD)
+#
+#   test       Linting con ruff y pruebas unitarias con pytest (cobertura).
+#   build      Genera la aplicación web (HTML + JSON + gráfico) y la empaqueta.
+#   deploy     Publica la aplicación en GitHub Pages (solo en push a main).
+#   verificar  Prueba de humo contra la URL pública (solo en push a main).
+#
+# Documentación detallada: docs/AUTOMATIZACION.md y docs/DESPLIEGUE.md
+# =============================================================================
 name: CI/CD
 
+# --- Eventos que disparan el pipeline ---------------------------------------
 on:
   push:
-    branches: [main]
+    branches: [main]          # merge o push a main: CI completo + despliegue
   pull_request:
-    branches: [main]
-  workflow_dispatch:
+    branches: [main]          # PR hacia main: solo CI (test + build), no despliega
+  workflow_dispatch:          # ejecución manual desde la pestaña Actions
 
+# --- Permisos del GITHUB_TOKEN ------------------------------------------------
+# Por defecto solo lectura del código; el job deploy pide los permisos extra que necesita.
 permissions:
   contents: read
 
+# --- Concurrencia -------------------------------------------------------------
+# Si llega un push nuevo a la misma rama mientras corre el pipeline, cancela el anterior.
 concurrency:
   group: ci-cd-${{ github.ref }}
   cancel-in-progress: true
 
+# --- Variables globales ---------------------------------------------------------
+env:
+  PYTHON_VERSION: "3.12"
+  # URL pública de la aplicación (GitHub Pages: https://<usuario>.github.io/<repositorio>/)
+  URL_SITIO: https://camilolondono-iud.github.io/scraping-iphone-ishop/
+
 jobs:
+  # ===========================================================================
+  # 1. INTEGRACIÓN CONTINUA: calidad del código y pruebas
+  # ===========================================================================
   test:
     name: Pruebas y linting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest            # máquina virtual Linux limpia en cada ejecución
     steps:
       - name: Descargar el código
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7     # clona el repositorio en el commit que disparó el pipeline
 
-      - name: Configurar Python 3.12 con caché de pip
+      - name: Configurar Python con caché de pip
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements*.txt
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip                  # reutiliza paquetes descargados en ejecuciones anteriores
+          cache-dependency-path: requirements*.txt   # la caché se invalida si cambian
 
-      - name: Instalar dependencias
-        run: pip install -r requirements-dev.txt
+      - name: Instalar dependencias de desarrollo
+        run: pip install -r requirements-dev.txt     # runtime + pytest, pytest-cov y ruff
 
       - name: Linting (ruff)
-        run: ruff check .
+        run: ruff check .             # falla si hay errores de estilo o imports sin usar
 
       - name: Pruebas unitarias con cobertura (pytest)
-        run: pytest --cov=src --cov-report=term-missing
+        # No hacen peticiones a iShop: usan HTML guardado en tests/fixtures/
+        run: pytest --cov=src --cov=scripts --cov-report=term-missing
 
+  # ===========================================================================
+  # 2. BUILD: genera la aplicación web y la empaqueta como artefacto
+  # ===========================================================================
   build:
     name: Generar sitio
-    needs: test
+    needs: test                       # solo corre si las pruebas pasaron
     runs-on: ubuntu-latest
+    env:
+      # Variables de configuración de la app. Se definen en
+      # Settings > Secrets and variables > Actions > Variables (vars.*).
+      # En un PR el entorno se marca como "pull-request" para no confundirlo con producción.
+      APP_ENV: ${{ github.event_name == 'pull_request' && 'pull-request' || vars.APP_ENV || 'produccion' }}
+      APP_VERSION: ${{ vars.APP_VERSION || 'dev' }}
     steps:
       - name: Descargar el código
         uses: actions/checkout@v7
 
-      - name: Configurar Python 3.12 con caché de pip
+      - name: Configurar Python con caché de pip
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: requirements*.txt
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias de ejecución
         run: pip install -r requirements.txt
 
-      - name: Generar el sitio estático
+      - name: Generar la aplicación (entorno ${{ env.APP_ENV }}, versión ${{ env.APP_VERSION }})
         run: python -m src.build_site --datos data/iphone18pro_ishop.csv --salida site
+
+      - name: Comprobar los archivos generados
+        # Falla si falta algún archivo o está vacío (test -s)
+        run: |
+          for f in index.html precios.png datos.json version.json; do
+            test -s "site/$f" || { echo "Falta site/$f"; exit 1; }
+          done
+          cat site/version.json
 
       - name: Subir el sitio como artefacto de Pages
         uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
+  # ===========================================================================
+  # 3. DESPLIEGUE CONTINUO: publica en GitHub Pages
+  # ===========================================================================
   deploy:
     name: Desplegar en GitHub Pages
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'   # nunca desde un PR
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pages: write
-      id-token: write
+      pages: write                    # publicar en GitHub Pages
+      id-token: write                 # token OIDC que GitHub Pages usa para autenticar el despliegue
     environment:
-      name: github-pages
+      name: github-pages              # entorno con historial de despliegues en GitHub
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Publicar en GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  # ===========================================================================
+  # 4. VERIFICACIÓN: prueba de humo contra la URL pública
+  # ===========================================================================
+  verificar:
+    name: Verificar despliegue
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      - name: Configurar Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Prueba de humo del sitio publicado
+        # Reintenta hasta 10 veces cada 15 s mientras la CDN de Pages sirve la versión nueva
+        run: >
+          python scripts/verificar_despliegue.py
+          --url "${{ needs.deploy.outputs.page_url || env.URL_SITIO }}"
+          --commit "${{ github.sha }}"
+          --variantes 32
